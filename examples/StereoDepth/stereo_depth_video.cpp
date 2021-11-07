@@ -1,6 +1,9 @@
 #include <iostream>
 
 // Inludes common necessary includes for development using depthai library
+#include <Converter.h>
+#include <System.h>
+
 #include "depthai/depthai.hpp"
 
 static std::atomic<bool> withDepth{true};
@@ -11,7 +14,7 @@ static std::atomic<bool> lrcheck{true};
 static std::atomic<bool> extended{false};
 static std::atomic<bool> subpixel{false};
 
-int main() {
+int main(int argc, char** argv) {
     using namespace std;
 
     // Create pipeline
@@ -24,8 +27,6 @@ int main() {
 
     auto xoutLeft = pipeline.create<dai::node::XLinkOut>();
     auto xoutRight = pipeline.create<dai::node::XLinkOut>();
-    auto xoutDisp = pipeline.create<dai::node::XLinkOut>();
-    auto xoutDepth = pipeline.create<dai::node::XLinkOut>();
     auto xoutRectifL = pipeline.create<dai::node::XLinkOut>();
     auto xoutRectifR = pipeline.create<dai::node::XLinkOut>();
 
@@ -33,8 +34,6 @@ int main() {
     xoutLeft->setStreamName("left");
     xoutRight->setStreamName("right");
     if(withDepth) {
-        xoutDisp->setStreamName("disparity");
-        xoutDepth->setStreamName("depth");
         xoutRectifL->setStreamName("rectified_left");
         xoutRectifR->setStreamName("rectified_right");
     }
@@ -46,32 +45,17 @@ int main() {
     monoRight->setBoardSocket(dai::CameraBoardSocket::RIGHT);
 
     if(withDepth) {
-        // StereoDepth
-        stereo->initialConfig.setConfidenceThreshold(230);
-        stereo->setRectifyEdgeFillColor(0);  // black, to better see the cutout
-        // stereo->setInputResolution(1280, 720);
-        stereo->initialConfig.setMedianFilter(dai::MedianFilter::KERNEL_5x5);
-        stereo->setLeftRightCheck(lrcheck);
-        stereo->setExtendedDisparity(extended);
-        stereo->setSubpixel(subpixel);
-
         // Linking
         monoLeft->out.link(stereo->left);
         monoRight->out.link(stereo->right);
 
         stereo->syncedLeft.link(xoutLeft->input);
         stereo->syncedRight.link(xoutRight->input);
-        stereo->disparity.link(xoutDisp->input);
 
         if(outputRectified) {
             stereo->rectifiedLeft.link(xoutRectifL->input);
             stereo->rectifiedRight.link(xoutRectifR->input);
         }
-
-        if(outputDepth) {
-            stereo->depth.link(xoutDepth->input);
-        }
-
     } else {
         // Link plugins CAM -> XLINK
         monoLeft->out.link(xoutLeft->input);
@@ -83,46 +67,29 @@ int main() {
 
     auto leftQueue = device.getOutputQueue("left", 8, false);
     auto rightQueue = device.getOutputQueue("right", 8, false);
-    auto dispQueue = withDepth ? device.getOutputQueue("disparity", 8, false) : nullptr;
-    auto depthQueue = withDepth ? device.getOutputQueue("depth", 8, false) : nullptr;
     auto rectifLeftQueue = withDepth ? device.getOutputQueue("rectified_left", 8, false) : nullptr;
     auto rectifRightQueue = withDepth ? device.getOutputQueue("rectified_right", 8, false) : nullptr;
 
-    // Disparity range is used for normalization
-    float disparityMultiplier = withDepth ? 255 / stereo->initialConfig.getMaxDisparity() : 0;
-
+    ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::STEREO, true);
+    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     while(true) {
-        auto left = leftQueue->get<dai::ImgFrame>();
-        cv::imshow("left", left->getFrame());
-        auto right = rightQueue->get<dai::ImgFrame>();
-        cv::imshow("right", right->getFrame());
-
         if(withDepth) {
-            // Note: in some configurations (if depth is enabled), disparity may output garbage data
-            auto disparity = dispQueue->get<dai::ImgFrame>();
-            cv::Mat disp(disparity->getCvFrame());
-            disp.convertTo(disp, CV_8UC1, disparityMultiplier);  // Extend disparity range
-            cv::imshow("disparity", disp);
-            cv::Mat disp_color;
-            cv::applyColorMap(disp, disp_color, cv::COLORMAP_JET);
-            cv::imshow("disparity_color", disp_color);
-
-            if(outputDepth) {
-                auto depth = depthQueue->get<dai::ImgFrame>();
-                cv::imshow("depth", depth->getCvFrame());
-            }
-
             if(outputRectified) {
                 auto rectifL = rectifLeftQueue->get<dai::ImgFrame>();
-                cv::imshow("rectified_left", rectifL->getFrame());
+                cv::Mat imLeftRect = rectifL->getFrame();
 
                 auto rectifR = rectifRightQueue->get<dai::ImgFrame>();
-                cv::imshow("rectified_right", rectifR->getFrame());
+                cv::Mat imRightRect = rectifR->getFrame();
+                std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+                double tframe = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count();
+                cout << "运行时间: " << tframe << endl;
+                cv::Mat Tcw = SLAM.TrackStereo(imLeftRect, imRightRect, tframe);
             }
         }
 
         int key = cv::waitKey(1);
         if(key == 'q' || key == 'Q') {
+            SLAM.Shutdown();
             return 0;
         }
     }

@@ -5,6 +5,18 @@ option(DEPTHAI_TEST_EXAMPLES "Test examples - examples will be ran as a part of 
 find_package(OpenCV REQUIRED)
 find_package(Sanitizers)
 
+# ORB_SLAM3
+find_package(Eigen3 3.1.0 REQUIRED)
+find_package(Pangolin REQUIRED)
+include_directories(
+${PROJECT_SOURCE_DIR/..}
+${PROJECT_SOURCE_DIR}/../include
+${PROJECT_SOURCE_DIR}/../include/CameraModels
+"/home/zgc/Documents/git_repos/ORB_SLAM3"
+${EIGEN3_INCLUDE_DIR}
+${Pangolin_INCLUDE_DIRS}
+)
+
 # Create utility library
 add_library(utility utility/utility.cpp)
 target_include_directories(utility PUBLIC "utility")
@@ -248,6 +260,15 @@ dai_add_example(depth_crop_control StereoDepth/depth_crop_control.cpp ON)
 dai_add_example(depth_preview StereoDepth/depth_preview.cpp  ON)
 dai_add_example(rgb_depth_aligned StereoDepth/rgb_depth_aligned.cpp ON)
 dai_add_example(stereo_depth_video StereoDepth/stereo_depth_video.cpp ON)
+target_link_libraries(stereo_depth_video PRIVATE "/home/zgc/Documents/git_repos/ORB_SLAM3/lib/libORB_SLAM3.so"
+${OpenCV_LIBS}
+${EIGEN3_LIBS}
+${Pangolin_LIBRARIES}
+${PROJECT_SOURCE_DIR}/../Thirdparty/DBoW2/lib/libDBoW2.so
+${PROJECT_SOURCE_DIR}/../Thirdparty/g2o/lib/libg2o.so
+-lboost_serialization
+-lcrypto
+)
 
 # SystemLogger
 dai_add_example(system_information SystemLogger/system_information.cpp ON)
